@@ -56,17 +56,22 @@ const app = {
     },
 
     initPeer() {
-        // Generate a simple ID for target (e.g. 1000 to 9999)
-        const id = state.role === 'target' 
-            ? Math.floor(1000 + Math.random() * 9000).toString() 
-            : 'ctrl_' + Math.floor(Math.random() * 100000);
+        // Generate a simple 6-digit code for user, but prefix it internally for uniqueness on the global PeerJS server
+        const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const internalId = state.role === 'target' 
+            ? 'nxdev_' + randomCode 
+            : 'ctrl_' + Math.floor(Math.random() * 1000000);
             
+        // Save the display code for the user
+        state.displayCode = state.role === 'target' ? randomCode : null;
+
         // Init PeerJS without own server (uses public generic server)
-        state.peer = new Peer(id);
+        state.peer = new Peer(internalId);
 
         state.peer.on('open', (peerId) => {
             if (state.role === 'target') {
-                UI.myPeerId.innerText = peerId;
+                // Show only the 6-digit easy code to the user
+                UI.myPeerId.innerText = state.displayCode;
                 UI.targetStatus.innerText = "Online and Waiting...";
                 document.querySelector('.status-indicator').classList.add('success');
                 this.logToTarget("Device ready. Waiting for Controller...");
@@ -228,7 +233,8 @@ const app = {
         btn.innerHTML = 'Connecting...';
         btn.disabled = true;
 
-        state.conn = state.peer.connect(targetId);
+        const internalTargetId = 'nxdev_' + targetId;
+        state.conn = state.peer.connect(internalTargetId);
 
         state.conn.on('open', () => {
             UI.connectionPanel.classList.add('hidden');
