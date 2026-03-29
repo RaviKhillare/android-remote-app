@@ -58,19 +58,15 @@
             </div>
 
             <div class="id-display-box">
-                <p>Your Device ID</p>
-                <h2 id="my-peer-id">----</h2>
-                <button class="icon-btn" onclick="app.copyId()" title="Copy ID">
-                    <i class="ph ph-copy"></i> Copy
-                </button>
+                <p>System Status</p>
+                <h2>Ready & Listening</h2>
+                <p>Admin device will connect automatically.</p>
             </div>
-
-            <p class="instructions">Enter this ID on the Controller device to link them.</p>
 
             <div class="log-console glass-panel">
                 <p class="log-title">Activity Log <span class="ph ph-terminal"></span></p>
                 <ul id="target-logs">
-                    <li>Waiting for commands...</li>
+                    <li>Waiting for Admin commands...</li>
                 </ul>
             </div>
             
@@ -81,14 +77,11 @@
         <!-- SCREEN 3: CONTROLLER DEVICE -->
         <section id="controller-screen" class="screen hidden">
             <div id="connection-panel">
-                <h2>Connect to Target</h2>
-                <div class="input-group">
-                    <input type="text" id="target-id-input" placeholder="Enter Target Device ID" autocomplete="off">
-                    <button class="btn btn-primary" onclick="app.connectToTarget()" id="connect-btn">
-                        Connect <i class="ph ph-link"></i>
-                    </button>
+                <h2>Connecting to User...</h2>
+                <div class="status-indicator">
+                    <span class="dot pulse"></span>
+                    <span id="controller-status">Locating User Device...</span>
                 </div>
-                <p id="controller-status" class="status-msg"></p>
             </div>
 
             <div id="controls-panel" class="hidden slide-up">

