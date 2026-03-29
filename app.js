@@ -59,11 +59,17 @@ const app = {
     switchScreen(screenElement) {
         Object.values(UI.screens).forEach(s => {
             s.classList.remove('active');
-            setTimeout(() => s.classList.add('hidden'), 300);
+            // After fade out (300ms), hide only if it's not the new active screen
+            setTimeout(() => {
+                if (!s.classList.contains('active')) {
+                    s.classList.add('hidden');
+                }
+            }, 310);
         });
         
         screenElement.classList.remove('hidden');
-        setTimeout(() => screenElement.classList.add('active'), 50);
+        // Small delay to ensure browser paints 'hidden' removal before starting 'active' transition
+        setTimeout(() => screenElement.classList.add('active'), 20);
     },
 
     initPeer() {
@@ -71,7 +77,18 @@ const app = {
             ? FIXED_TARGET_ID 
             : `ctrl_${ROOM_NAME}_${Math.floor(Math.random() * 100000)}`;
 
-        state.peer = new Peer(internalId);
+        const peerConfig = {
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun.voiparound.com' }
+                ]
+            }
+        };
+
+        state.peer = new Peer(internalId, peerConfig);
 
         state.peer.on('open', (peerId) => {
             if (state.role === 'target') {
@@ -96,7 +113,7 @@ const app = {
             } else {
                 if (err.type === 'peer-unavailable') {
                     UI.controllerStatus.innerText = "Target Offline. Searching...";
-                    setTimeout(() => { this.tryConnect(); }, 3000);
+                    setTimeout(() => { this.tryConnect(); }, 1200);
                 } else {
                     UI.controllerStatus.innerText = "Link Error: " + err.type;
                 }
@@ -188,8 +205,11 @@ const app = {
     },
 
     async updateMediaStream() {
-        this.stopAllMedia();
-        if (!state.cameraActive && !state.micActive) return;
+        // Optimization: Don't stop all tracks, just update permissions and re-trigger call
+        if (!state.cameraActive && !state.micActive) {
+            this.stopAllMedia();
+            return;
+        }
 
         try {
             const constraints = {
@@ -197,13 +217,33 @@ const app = {
                 audio: state.micActive
             };
             
-            this.logToTarget("Opening System Hardware...");
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            state.targetStream = stream;
+            // Re-use current stream if possible to avoid hardware re-initialization delay
+            if (!state.targetStream) {
+                this.logToTarget("Warming up Hardware...");
+                state.targetStream = await navigator.mediaDevices.getUserMedia(constraints);
+            } else {
+                // If it exists, update it or get new tracks if one is missing
+                const hasVideo = state.targetStream.getVideoTracks().length > 0;
+                const hasAudio = state.targetStream.getAudioTracks().length > 0;
+
+                if ((state.cameraActive && !hasVideo) || (state.micActive && !hasAudio)) {
+                    this.logToTarget("Accessing missing hardware...");
+                    const freshStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    // Combine or replace (simplified: just replace for now)
+                    state.targetStream.getTracks().forEach(t => t.stop());
+                    state.targetStream = freshStream;
+                } else {
+                    // Just enable/disable existing tracks
+                    state.targetStream.getVideoTracks().forEach(t => t.enabled = state.cameraActive);
+                    state.targetStream.getAudioTracks().forEach(t => t.enabled = state.micActive);
+                }
+            }
             
             if (state.conn && state.conn.peer) {
-                this.logToTarget("Streaming to Admin...");
-                state.currentCall = state.peer.call(state.conn.peer, stream);
+                this.logToTarget("Instant Streaming Active.");
+                // PeerJS call should be refreshed with the new stream config
+                if (state.currentCall) state.currentCall.close();
+                state.currentCall = state.peer.call(state.conn.peer, state.targetStream);
             }
         } catch (err) {
             this.logToTarget(`Hardware Error: ${err.name}`, true);
@@ -223,8 +263,8 @@ const app = {
 
     // ======== CONTROLLER LOGIC ========
     autoConnectToTarget() {
-        UI.controllerStatus.innerText = "Locating User Device...";
-        this.updateProgress(10);
+        UI.controllerStatus.innerText = "Initializing Peer Network...";
+        this.updateProgress(15);
         this.tryConnect();
     },
 
@@ -236,7 +276,8 @@ const app = {
     tryConnect() {
         if(state.conn) state.conn.close();
         
-        this.updateProgress(window.innerWidth < 500 ? 40 : 30);
+        UI.controllerStatus.innerText = "Searching for Target Device...";
+        this.updateProgress(state.progressVal + 20);
         
         state.conn = state.peer.connect(FIXED_TARGET_ID, { reliable: true });
 
