@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Remote Control</title>
+    <meta name="description" content="Remote access your phone's camera, mic, and speaker securely via WebRTC.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Phosphor Icons for UI elements -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- PeerJS for WebRTC signaling -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob shape1"></div>
+        <div class="blob shape2"></div>
+        <div class="blob shape3"></div>
+    </div>
+
+    <!-- MAIN APP CONTAINER -->
+    <main class="app-container glass-panel">
+        <header>
+            <h1>Nexus<span class="highlight">Link</span></h1>
+            <p>Secure Remote Access</p>
+        </header>
+
+        <!-- SCREEN 1: ROLE SELECTION -->
+        <section id="role-selection-screen" class="screen active">
+            <h2>Select Device Role</h2>
+            <p class="subtitle">How do you want to use this phone?</p>
+            
+            <div class="role-cards">
+                <button class="role-card" onclick="app.selectRole('target')">
+                    <i class="ph ph-device-mobile"></i>
+                    <h3>Target Device</h3>
+                    <p>Make this phone's camera, mic, and speaker accessible remotely.</p>
+                </button>
+
+                <button class="role-card primary" onclick="app.selectRole('controller')">
+                    <i class="ph ph-game-controller"></i>
+                    <h3>Controller</h3>
+                    <p>Use this device to control and view the target phone.</p>
+                </button>
+            </div>
+        </section>
+
+        <!-- SCREEN 2: TARGET DEVICE (HOST) -->
+        <section id="target-screen" class="screen hidden">
+            <div class="status-indicator">
+                <span class="dot pulse"></span>
+                <span id="target-status-text">Initializing Secure Connection...</span>
+            </div>
+
+            <div class="id-display-box">
+                <p>Your Device ID</p>
+                <h2 id="my-peer-id">----</h2>
+                <button class="icon-btn" onclick="app.copyId()" title="Copy ID">
+                    <i class="ph ph-copy"></i> Copy
+                </button>
+            </div>
+
+            <p class="instructions">Enter this ID on the Controller device to link them.</p>
+
+            <div class="log-console glass-panel">
+                <p class="log-title">Activity Log <span class="ph ph-terminal"></span></p>
+                <ul id="target-logs">
+                    <li>Waiting for commands...</li>
+                </ul>
+            </div>
+            
+            <!-- Hidden Audio/Video elements for Target -->
+            <video id="local-video" autoplay muted playsinline class="hidden"></video>
+        </section>
+
+        <!-- SCREEN 3: CONTROLLER DEVICE -->
+        <section id="controller-screen" class="screen hidden">
+            <div id="connection-panel">
+                <h2>Connect to Target</h2>
+                <div class="input-group">
+                    <input type="text" id="target-id-input" placeholder="Enter Target Device ID" autocomplete="off">
+                    <button class="btn btn-primary" onclick="app.connectToTarget()" id="connect-btn">
+                        Connect <i class="ph ph-link"></i>
+                    </button>
+                </div>
+                <p id="controller-status" class="status-msg"></p>
+            </div>
+
+            <div id="controls-panel" class="hidden slide-up">
+                <div class="status-indicator success">
+                    <span class="dot"></span>
+                    <span>Connected securely</span>
+                </div>
+
+                <!-- Media Viewer -->
+                <div class="media-container glass-panel">
+                    <div class="video-placeholder" id="video-placeholder">
+                        <i class="ph ph-video-camera-slash"></i>
+                        <p>Camera is Offline</p>
+                    </div>
+                    <video id="remote-video" autoplay playsinline class="hidden"></video>
+                    <!-- Audio playback for remote mic -->
+                    <audio id="remote-audio" autoplay></audio>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="action-grid">
+                    <button class="action-btn" id="btn-camera" onclick="app.toggleRemoteCamera()">
+                        <i class="ph ph-video-camera"></i>
+                        <span>View Camera</span>
+                    </button>
+                    
+                    <button class="action-btn" id="btn-mic" onclick="app.toggleRemoteMic()">
+                        <i class="ph ph-microphone"></i>
+                        <span>Listen Mic</span>
+                    </button>
+                    
+                    <button class="action-btn" id="btn-speaker" onclick="app.playRemoteSong()">
+                        <i class="ph ph-speaker-hifi"></i>
+                        <span>Play Song</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
