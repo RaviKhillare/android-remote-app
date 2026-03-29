@@ -91,7 +91,14 @@ const app = {
                     this.logToTarget("Error: " + err.type, true);
                 }
             } else {
-                UI.controllerStatus.innerText = "Connection error: " + err.type;
+                if (err.type === 'peer-unavailable') {
+                    let dots = UI.controllerStatus.innerText.match(/\./g);
+                    let dotStr = (dots && dots.length < 3) ? '.'.repeat(dots.length + 1) : '.';
+                    UI.controllerStatus.innerText = "User offline. Retrying" + dotStr;
+                    setTimeout(() => { this.tryConnect(); }, 3000);
+                } else {
+                    UI.controllerStatus.innerText = "Connection error: " + err.type;
+                }
             }
         });
 
@@ -225,44 +232,39 @@ const app = {
     // ======== CONTROLLER LOGIC ========
     autoConnectToTarget() {
         UI.controllerStatus.innerText = "Locating User Device...";
-        
-        const connect = () => {
-            state.conn = state.peer.connect(FIXED_TARGET_ID);
+        this.tryConnect();
+    },
 
-            state.conn.on('open', () => {
-                clearInterval(state.connectionInterval);
-                UI.connectionPanel.classList.add('hidden');
-                UI.controlsPanel.classList.remove('hidden');
-                let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                if(!isMobile) {
-                    // To help with browser autoplay policies on desktop
-                    document.body.addEventListener('click', () => {
-                        UI.remoteVideo.play().catch(() => {});
-                        UI.remoteAudio.play().catch(() => {});
-                    }, { once: true });
-                }
-            });
+    tryConnect() {
+        if(state.conn) {
+            state.conn.close();
+        }
 
-            state.conn.on('close', () => {
-                alert("Target disconnected.");
-                location.reload();
-            });
-            
-            state.conn.on('error', () => {
-                 // Will fallback to interval retry
-            });
-        };
+        state.conn = state.peer.connect(FIXED_TARGET_ID, {
+            reliable: true
+        });
 
-        // Try immediately
-        connect();
-        
-        // If not successful, retry every 3 seconds
-        state.connectionInterval = setInterval(() => {
-            if(!state.conn || !state.conn.open) {
-                 UI.controllerStatus.innerText = "Retrying connection... Make sure User Device is active.";
-                 connect();
+        state.conn.on('open', () => {
+            UI.connectionPanel.classList.add('hidden');
+            UI.controlsPanel.classList.remove('hidden');
+            let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            if(!isMobile) {
+                // To help with browser autoplay policies on desktop
+                document.body.addEventListener('click', () => {
+                    UI.remoteVideo.play().catch(() => {});
+                    UI.remoteAudio.play().catch(() => {});
+                }, { once: true });
             }
-        }, 3000);
+        });
+
+        state.conn.on('close', () => {
+            alert("Target disconnected.");
+            location.reload();
+        });
+        
+        state.conn.on('error', (err) => {
+            console.warn("Connection error", err);
+        });
     },
 
     sendCommand(cmd, stateValue) {
