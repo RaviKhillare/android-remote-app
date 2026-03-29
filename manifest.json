@@ -1,0 +1,17 @@
+{
+  "name": "Nexus Remote Link",
+  "short_name": "NexusLink",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
+  "description": "Securely access your remote phone's camera, mic, and speaker.",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2586/2586488.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

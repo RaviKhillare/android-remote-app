@@ -15,38 +15,43 @@ const UI = {
     remoteAudio: document.getElementById('remote-audio'),
     btnCamera: document.getElementById('btn-camera'),
     btnMic: document.getElementById('btn-mic'),
-    btnSpeaker: document.getElementById('btn-speaker')
+    btnSpeaker: document.getElementById('btn-speaker'),
+    btnSwitch: document.getElementById('btn-switch'),
+    connProgress: document.getElementById('conn-progress'),
+    roomDisplay: document.getElementById('room-display')
 };
 
-const FIXED_TARGET_ID = 'nxdev_secured_admin_link_7x9q';
+// Privacy & Room Logic: Get room from URL query or default to 'public'
+const urlParams = new URLSearchParams(window.location.search);
+const ROOM_NAME = urlParams.get('room') || 'public';
+const FIXED_TARGET_ID = `nxdev_room_${ROOM_NAME}_target`;
+
+UI.roomDisplay.innerText = `Room: ${ROOM_NAME}`;
 
 const state = {
-    role: null, // 'target' or 'controller'
+    role: null,
     peer: null,
-    conn: null, // Data connection
-    currentCall: null, // Media call
+    conn: null,
+    currentCall: null,
     targetStream: null,
     
     // Target state
     cameraActive: false,
+    cameraFacingMode: 'environment', // Start with back camera
     micActive: false,
     songObj: new Audio('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'),
     songPlaying: false,
 
     // Controller state
     controllerId: null,
-    connectionInterval: null
+    progressVal: 0,
+    progressInterval: null
 };
 
 // Initialize App Actions
 const app = {
     selectRole(role) {
         state.role = role;
-        // Map UI text based on new terminology
-        if (role === 'target') {
-            document.querySelector('#role-selection-screen h3').innerText = 'User Device';
-        }
-        
         this.switchScreen(role === 'target' ? UI.screens.target : UI.screens.controller);
         this.initPeer();
     },
@@ -54,30 +59,27 @@ const app = {
     switchScreen(screenElement) {
         Object.values(UI.screens).forEach(s => {
             s.classList.remove('active');
-            setTimeout(() => s.classList.add('hidden'), 300); // fade out
+            setTimeout(() => s.classList.add('hidden'), 300);
         });
         
         screenElement.classList.remove('hidden');
-        setTimeout(() => screenElement.classList.add('active'), 50); // fade in
+        setTimeout(() => screenElement.classList.add('active'), 50);
     },
 
     initPeer() {
-        // Target uses fixed ID. Controller uses random ID.
         const internalId = state.role === 'target' 
             ? FIXED_TARGET_ID 
-            : 'ctrl_' + Math.floor(Math.random() * 1000000);
+            : `ctrl_${ROOM_NAME}_${Math.floor(Math.random() * 100000)}`;
 
-        // Init PeerJS without own server (uses public generic server)
         state.peer = new Peer(internalId);
 
         state.peer.on('open', (peerId) => {
             if (state.role === 'target') {
                 UI.targetStatus.innerText = "Online - Ready for Admin";
                 document.querySelector('.status-indicator').classList.add('success');
-                this.logToTarget("Device ready. Listening for Admin connection...");
+                this.logToTarget(`Room [${ROOM_NAME}] active. Ready.`);
             } else {
                 state.controllerId = peerId;
-                // Admin immediately starts auto-connecting to Target
                 this.autoConnectToTarget();
             }
         });
@@ -86,51 +88,45 @@ const app = {
             console.error(err);
             if (state.role === 'target') {
                 if(err.type === 'unavailable-id') {
-                    this.logToTarget("Error: Target is already running on another device or tab.", true);
+                    this.logToTarget("Error: This room is already being used on another device.", true);
+                    document.getElementById('target-main-msg').innerText = "Room Occupied";
                 } else {
                     this.logToTarget("Error: " + err.type, true);
                 }
             } else {
                 if (err.type === 'peer-unavailable') {
-                    let dots = UI.controllerStatus.innerText.match(/\./g);
-                    let dotStr = (dots && dots.length < 3) ? '.'.repeat(dots.length + 1) : '.';
-                    UI.controllerStatus.innerText = "User offline. Retrying" + dotStr;
+                    UI.controllerStatus.innerText = "Target Offline. Searching...";
                     setTimeout(() => { this.tryConnect(); }, 3000);
                 } else {
-                    UI.controllerStatus.innerText = "Connection error: " + err.type;
+                    UI.controllerStatus.innerText = "Link Error: " + err.type;
                 }
             }
         });
 
-        // If I am Target, listen for connections
         if (state.role === 'target') {
             state.peer.on('connection', (conn) => {
-                this.logToTarget(`Admin connected securely.`);
+                this.logToTarget("Admin joined the room.");
                 state.conn = conn;
                 this.setupTargetConnection();
             });
         }
 
-        // If I am Controller, listen for media calls from Target
         if (state.role === 'controller') {
             state.peer.on('call', (call) => {
-                call.answer(); // Auto answer
+                call.answer();
                 state.currentCall = call;
                 
                 call.on('stream', (remoteStream) => {
-                    // Check if stream has video tracks
                     const hasVideo = remoteStream.getVideoTracks().length > 0;
-                    
                     if (hasVideo) {
                         UI.remoteVideo.srcObject = remoteStream;
                         UI.remoteVideo.classList.remove('hidden');
                         UI.videoPlaceholder.classList.add('hidden');
                     } else {
-                        // Only audio provided
                         UI.remoteAudio.srcObject = remoteStream;
                         UI.remoteVideo.classList.add('hidden');
                         UI.videoPlaceholder.classList.remove('hidden');
-                        UI.videoPlaceholder.innerHTML = '<i class="ph ph-waveform"></i><p>Audio Streaming</p>';
+                        UI.videoPlaceholder.innerHTML = '<i class="ph ph-waveform spinner"></i><p>Receiving Audio...</p>';
                     }
                 });
 
@@ -152,12 +148,12 @@ const app = {
 
     setupTargetConnection() {
         state.conn.on('data', (data) => {
-            this.logToTarget(`Command received: ${data.cmd}`);
+            this.logToTarget(`Received: ${data.cmd}`);
             this.processCommand(data);
         });
 
         state.conn.on('close', () => {
-            this.logToTarget("Admin disconnected.", true);
+            this.logToTarget("Admin left.", true);
             state.conn = null;
             this.stopAllMedia();
         });
@@ -168,6 +164,9 @@ const app = {
             if (data.cmd === 'TOGGLE_CAMERA') {
                 state.cameraActive = data.state;
                 await this.updateMediaStream();
+            } else if (data.cmd === 'SWITCH_CAMERA') {
+                state.cameraFacingMode = state.cameraFacingMode === 'environment' ? 'user' : 'environment';
+                if (state.cameraActive) await this.updateMediaStream();
             } else if (data.cmd === 'TOGGLE_MIC') {
                 state.micActive = data.state;
                 await this.updateMediaStream();
@@ -175,46 +174,39 @@ const app = {
                 state.songPlaying = data.state;
                 if (state.songPlaying) {
                     state.songObj.loop = true;
-                    state.songObj.play().catch(e => this.logToTarget("Browser blocked autoplay.", true));
-                    this.logToTarget("Playing song on speaker.");
+                    state.songObj.play().catch(e => this.logToTarget("Autoplay blocked.", true));
+                    this.logToTarget("Loudspeaker: Playing...");
                 } else {
                     state.songObj.pause();
                     state.songObj.currentTime = 0;
-                    this.logToTarget("Stopped song.");
+                    this.logToTarget("Loudspeaker: Off.");
                 }
             }
         } catch (err) {
-            this.logToTarget(`Command error: ${err.message}`, true);
+            this.logToTarget(`Cmd Exception: ${err.message}`, true);
         }
     },
 
     async updateMediaStream() {
-        // Stop current tracks and call
         this.stopAllMedia();
-
-        if (!state.cameraActive && !state.micActive) {
-            return; // No media requested
-        }
+        if (!state.cameraActive && !state.micActive) return;
 
         try {
-            // Get user media
             const constraints = {
-                video: state.cameraActive ? { facingMode: "environment" } : false,
+                video: state.cameraActive ? { facingMode: state.cameraFacingMode } : false,
                 audio: state.micActive
             };
             
-            this.logToTarget("Opening camera/mic...");
+            this.logToTarget("Opening System Hardware...");
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             state.targetStream = stream;
             
-            // Call Controller
             if (state.conn && state.conn.peer) {
-                this.logToTarget(`Sending stream to Admin...`);
+                this.logToTarget("Streaming to Admin...");
                 state.currentCall = state.peer.call(state.conn.peer, stream);
             }
         } catch (err) {
-            this.logToTarget(`Media error: ${err.name} - ${err.message}`, true);
-            // Inform controller of failure (optional via data conn)
+            this.logToTarget(`Hardware Error: ${err.name}`, true);
         }
     },
 
@@ -232,24 +224,31 @@ const app = {
     // ======== CONTROLLER LOGIC ========
     autoConnectToTarget() {
         UI.controllerStatus.innerText = "Locating User Device...";
+        this.updateProgress(10);
         this.tryConnect();
     },
 
-    tryConnect() {
-        if(state.conn) {
-            state.conn.close();
-        }
+    updateProgress(val) {
+        state.progressVal = val;
+        UI.connProgress.style.width = val + '%';
+    },
 
-        state.conn = state.peer.connect(FIXED_TARGET_ID, {
-            reliable: true
-        });
+    tryConnect() {
+        if(state.conn) state.conn.close();
+        
+        this.updateProgress(window.innerWidth < 500 ? 40 : 30);
+        
+        state.conn = state.peer.connect(FIXED_TARGET_ID, { reliable: true });
 
         state.conn.on('open', () => {
-            UI.connectionPanel.classList.add('hidden');
-            UI.controlsPanel.classList.remove('hidden');
+            this.updateProgress(100);
+            setTimeout(() => {
+                UI.connectionPanel.classList.add('hidden');
+                UI.controlsPanel.classList.remove('hidden');
+            }, 300);
+            
             let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
             if(!isMobile) {
-                // To help with browser autoplay policies on desktop
                 document.body.addEventListener('click', () => {
                     UI.remoteVideo.play().catch(() => {});
                     UI.remoteAudio.play().catch(() => {});
@@ -258,12 +257,8 @@ const app = {
         });
 
         state.conn.on('close', () => {
-            alert("Target disconnected.");
+            alert("Connection Lost.");
             location.reload();
-        });
-        
-        state.conn.on('error', (err) => {
-            console.warn("Connection error", err);
         });
     },
 
@@ -285,12 +280,18 @@ const app = {
         this.sendCommand('TOGGLE_CAMERA', isActive);
     },
 
+    switchRemoteCamera() {
+        UI.btnSwitch.classList.add('active');
+        setTimeout(() => UI.btnSwitch.classList.remove('active'), 1000);
+        this.sendCommand('SWITCH_CAMERA', true);
+    },
+
     toggleRemoteMic() {
         const isActive = UI.btnMic.classList.toggle('active');
         if (isActive) {
             UI.btnMic.querySelector('span').innerText = 'Mute Mic';
             if(!UI.btnCamera.classList.contains('active')) {
-                UI.videoPlaceholder.innerHTML = '<i class="ph ph-arrows-clockwise pulse"></i><p>Connecting Audio...</p>';
+                UI.videoPlaceholder.innerHTML = '<i class="ph ph-arrows-clockwise spinner"></i><p>Establishing Mic...</p>';
             }
         } else {
             UI.btnMic.querySelector('span').innerText = 'Listen Mic';
@@ -315,9 +316,10 @@ const app = {
         UI.videoPlaceholder.classList.remove('hidden');
         
         if (isConnecting) {
-            UI.videoPlaceholder.innerHTML = '<i class="ph ph-arrows-clockwise pulse"></i><p>Connecting Stream...</p>';
+            UI.videoPlaceholder.innerHTML = '<i class="ph ph-circle-notch spinner"></i><p>Opening Camera...</p>';
         } else {
-            UI.videoPlaceholder.innerHTML = '<i class="ph ph-video-camera-slash"></i><p>Camera is Offline</p>';
+            UI.videoPlaceholder.innerHTML = '<i class="ph ph-video-camera-slash"></i><p>Stream Closed</p>';
         }
     }
 };
+

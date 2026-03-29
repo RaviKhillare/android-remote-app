@@ -13,6 +13,8 @@
     <link rel="stylesheet" href="style.css">
     <!-- Phosphor Icons for UI elements -->
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- manifest for PWA -->
+    <link rel="manifest" href="manifest.json">
     <!-- PeerJS for WebRTC signaling -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
@@ -27,7 +29,7 @@
     <main class="app-container glass-panel">
         <header>
             <h1>Nexus<span class="highlight">Link</span></h1>
-            <p>Secure Remote Access</p>
+            <p id="room-display">Secure Remote Access</p>
         </header>
 
         <!-- SCREEN 1: ROLE SELECTION -->
@@ -38,16 +40,17 @@
             <div class="role-cards">
                 <button class="role-card" onclick="app.selectRole('target')">
                     <i class="ph ph-device-mobile"></i>
-                    <h3>Target Device</h3>
-                    <p>Make this phone's camera, mic, and speaker accessible remotely.</p>
+                    <h3>User Device</h3>
+                    <p>Make this phone accessible remotely.</p>
                 </button>
 
                 <button class="role-card primary" onclick="app.selectRole('controller')">
                     <i class="ph ph-game-controller"></i>
-                    <h3>Controller</h3>
-                    <p>Use this device to control and view the target phone.</p>
+                    <h3>Admin Console</h3>
+                    <p>Control and view the User device.</p>
                 </button>
             </div>
+            <p class="room-hint">Tip: Share the same URL to stay in the same private "Room".</p>
         </section>
 
         <!-- SCREEN 2: TARGET DEVICE (HOST) -->
@@ -59,7 +62,7 @@
 
             <div class="id-display-box">
                 <p>System Status</p>
-                <h2>Ready & Listening</h2>
+                <h2 id="target-main-msg">Ready & Listening</h2>
                 <p>Admin device will connect automatically.</p>
             </div>
 
@@ -78,9 +81,12 @@
         <section id="controller-screen" class="screen hidden">
             <div id="connection-panel">
                 <h2>Connecting to User...</h2>
-                <div class="status-indicator">
-                    <span class="dot pulse"></span>
+                <div class="status-indicator loading">
+                    <i class="ph ph-circle-notch spinner"></i>
                     <span id="controller-status">Locating User Device...</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="conn-progress"></div>
                 </div>
             </div>
 
@@ -108,6 +114,11 @@
                         <span>View Camera</span>
                     </button>
                     
+                    <button class="action-btn" id="btn-switch" onclick="app.switchRemoteCamera()">
+                        <i class="ph ph-arrows-clockwise"></i>
+                        <span>Switch Side</span>
+                    </button>
+
                     <button class="action-btn" id="btn-mic" onclick="app.toggleRemoteMic()">
                         <i class="ph ph-microphone"></i>
                         <span>Listen Mic</span>
